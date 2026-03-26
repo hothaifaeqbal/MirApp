@@ -63,8 +63,8 @@ export const loginUser = async (req, res) => {
         return res.status(400).json({ message: 'Activation code, deviceId, and password are required.' });
     }
 
-    // Find the user by activation code
-    const user = await User.findOne({ activationCode });
+    // Find the user by activation code (support both String and Number in DB)
+    const user = await User.findOne({ activationCode: { $in: [activationCode, Number(activationCode)] } });
 
     if (!user) {
       return res.status(401).json({ message: 'Invalid activation code' });
