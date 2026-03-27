@@ -5,22 +5,38 @@ import Tur from '../models/tur.model.js';
 // @access  Private (Admin / Warehouse)
 export const createTur = async (req, res) => {
   try {
-    const { driverId, totalPackagesTaken } = req.body;
+    const { driverId, manualDeliveredCount, manualReturnedCount, ratePerPackage, packages } = req.body;
 
-    if (!driverId || totalPackagesTaken === undefined) {
-      return res.status(400).json({ message: 'Driver ID and total packages taken are required.' });
+    if (!driverId) {
+      return res.status(400).json({ message: 'Driver ID is required.' });
     }
 
     if (req.user.role !== 'ADMIN' && req.user.role !== 'WAREHOUSE') {
       return res.status(403).json({ message: 'Only Admins or Warehouse workers can assign packages.' });
     }
 
+    // Check if the driver already has an active Tur today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const existingTur = await Tur.findOne({
+      driver: driverId,
+      date: { $gte: today },
+      status: 'ACTIVE'
+    });
+
+    if (existingTur) {
+      return res.status(400).json({ message: 'Driver already has an Active Tur today.' });
+    }
+
     const tur = await Tur.create({
       driver: driverId,
-      createdBy: req.user._id,
       date: new Date(),
-      totalPackagesTaken,
-      status: 'IN_PROGRESS'
+      manualDeliveredCount: manualDeliveredCount || 0,
+      manualReturnedCount: manualReturnedCount || 0,
+      ratePerPackage: ratePerPackage || 0.50,
+      packages: packages || [],
+      status: 'ACTIVE'
     });
 
     res.status(201).json(tur);
@@ -29,12 +45,12 @@ export const createTur = async (req, res) => {
   }
 };
 
-// @desc    Update Tur (Input Returns)
+// @desc    Update Tur (Manual Counts or Status)
 // @route   PUT /api/logistics/turs/:id
 // @access  Private (Driver / Admin / Warehouse)
-export const updateTurReturns = async (req, res) => {
+export const updateTur = async (req, res) => {
   try {
-    const { returns, status } = req.body;
+    const { manualDeliveredCount, manualReturnedCount, status } = req.body;
 
     const tur = await Tur.findById(req.params.id);
 
@@ -47,10 +63,11 @@ export const updateTurReturns = async (req, res) => {
        return res.status(403).json({ message: 'You can only update your own Turs.' });
     }
 
-    if (returns !== undefined) tur.returns = returns;
+    if (manualDeliveredCount !== undefined) tur.manualDeliveredCount = manualDeliveredCount;
+    if (manualReturnedCount !== undefined) tur.manualReturnedCount = manualReturnedCount;
     if (status !== undefined) tur.status = status;
 
-    await tur.save(); // pre-save hook will calculate deliveredPackages
+    await tur.save();
 
     res.json(tur);
   } catch (error) {
@@ -72,7 +89,6 @@ export const getTurs = async (req, res) => {
 
     const turs = await Tur.find(query)
       .populate('driver', 'name')
-      .populate('createdBy', 'name')
       .sort({ createdAt: -1 });
 
     res.json(turs);
