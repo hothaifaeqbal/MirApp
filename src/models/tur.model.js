@@ -1,50 +1,43 @@
 import mongoose from 'mongoose';
 
+const packageSchema = new mongoose.Schema({
+  trackingNumber: { type: String, required: true },
+  address: { type: String, required: true },
+  status: {
+    type: String,
+    enum: ['PENDING', 'DELIVERED', 'MAILBOX', 'RETURNED'],
+    default: 'PENDING'
+  },
+  deliveryNotes: String, // e.g. "Left at back door"
+});
+
 const turSchema = new mongoose.Schema({
   driver: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
-  },
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // Admin or Warehouse worker
-    required: true
+    required: true,
   },
   date: {
     type: Date,
-    required: true
-  },
-  totalPackagesTaken: {
-    type: Number,
     required: true,
-    min: 0
+    default: Date.now,
   },
-  returns: {
-    type: Number, // Rücklauf
-    default: 0,
-    min: 0
-  },
-  deliveredPackages: {
-    type: Number, // total - returns
-    default: 0
-  },
+  packages: [packageSchema],
+  
+  // Overrides for manual day counts
+  manualDeliveredCount: { type: Number, default: 0 },
+  manualReturnedCount: { type: Number, default: 0 },
+  
+  // Salary specific
+  ratePerPackage: { type: Number, required: true, default: 0.50 }, // e.g 0.50 Euros
+
   status: {
     type: String,
-    enum: ['IN_PROGRESS', 'COMPLETED'],
-    default: 'IN_PROGRESS'
+    enum: ['ACTIVE', 'COMPLETED'],
+    default: 'ACTIVE'
   }
 }, {
-  timestamps: true
+  timestamps: true,
 });
 
-// Pre-save to calculate delivered
-turSchema.pre('save', function (next) {
-  if (this.totalPackagesTaken >= this.returns) {
-    this.deliveredPackages = this.totalPackagesTaken - this.returns;
-  }
-  next();
-});
-
-const Tur = mongoose.model('Tur', turSchema);
-export default Tur;
+export default mongoose.model('Tur', turSchema);
