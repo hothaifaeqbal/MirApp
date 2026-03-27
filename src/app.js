@@ -9,6 +9,7 @@ import adminRoutes from './routes/admin.routes.js';
 import attendanceRoutes from './routes/attendance.routes.js';
 import logisticsRoutes from './routes/logistics.routes.js';
 import financeRoutes from './routes/finance.routes.js';
+import locationRoutes from './routes/location.routes.js';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/logistics', logisticsRoutes);
 app.use('/api/finance', financeRoutes);
+app.use('/api/location', locationRoutes);
 
 // Health check endpoint for Render
 app.get('/health', (req, res) => {
