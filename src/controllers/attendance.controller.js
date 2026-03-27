@@ -1,4 +1,6 @@
 import Attendance from '../models/attendance.model.js';
+import User from '../models/user.model.js';
+import crypto from 'crypto';
 
 // Haversine formula to calculate distance between two coordinates in meters
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -122,3 +124,82 @@ export const checkOut = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// @desc    Kiosk Scan (QR Code HMAC Check-in/Out)
+// @route   POST /api/attendance/kiosk-scan
+// @access  Private (Admin only)
+export const kioskScan = async (req, res) => {
+  try {
+    const { payload } = req.body;
+    if (!payload) return res.status(400).json({ message: 'QR Payload missing.' });
+
+    let data;
+    try {
+      data = typeof payload === 'string' ? JSON.parse(payload) : payload;
+    } catch (e) {
+      return res.status(400).json({ message: 'Invalid QR format.' });
+    }
+
+    const { userId, timestamp, signature } = data;
+
+    // Verify HMAC
+    const _secret = 'HERMES_LOGISTICS_SECRET_2026_SECURE_QR';
+    const expectedPayload = `${userId}:${timestamp}`;
+    const hmacSha256 = crypto.createHmac('sha256', _secret);
+    const expectedSignature = hmacSha256.update(expectedPayload).digest('hex');
+
+    if (signature !== expectedSignature) {
+      return res.status(403).json({ message: 'هذا الـ QR مزور أو تم التلاعب به!' });
+    }
+
+    // Verify window (60 seconds) with a 60s grace period
+    const now = Math.floor(Date.now() / 1000);
+    const window = now - (now % 60);
+    if (timestamp !== window && timestamp !== (window - 60)) {
+      return res.status(403).json({ message: 'هذا الرمز منتهي الصلاحية، يرجى تحديث التطبيق!' });
+    }
+
+    // Find Worker
+    const worker = await User.findById(userId);
+    if (!worker) return res.status(404).json({ message: 'لم يتم العثور على الموظف!' });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const existingAttendance = await Attendance.findOne({
+      user: worker._id,
+      date: { $gte: today }
+    });
+
+    if (!existingAttendance) {
+      // Clock IN
+      await Attendance.create({
+        user: worker._id,
+        date: new Date(),
+        checkInTime: new Date(),
+        type: worker.role,
+        checkInLocation: { lat: HANGAR_LAT, lng: HANGAR_LNG }
+      });
+      return res.json({ message: `${worker.name}\nتم تسجيل الدخول لبدء الوردية.` });
+    } else if (!existingAttendance.checkOutTime) {
+      // Clock OUT
+      if (worker.role === 'DRIVER') {
+        return res.status(400).json({ message: `السائق ${worker.name} مسجل مسبقاً. إنهاء الوردية يتم من هاتف السائق حصراً.` });
+      }
+
+      existingAttendance.checkOutTime = new Date();
+      existingAttendance.checkOutLocation = { lat: HANGAR_LAT, lng: HANGAR_LNG };
+      const hours = Math.abs(existingAttendance.checkOutTime - existingAttendance.checkInTime) / 36e5;
+      existingAttendance.totalHours = hours;
+      await existingAttendance.save();
+      
+      return res.json({ message: `${worker.name}\nتم تسجيل الخروج وإنهاء الوردية.` });
+    } else {
+      return res.status(400).json({ message: `الموظف ${worker.name} أتم ورديته مسبقاً اليوم!` });
+    }
+
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
